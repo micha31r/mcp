@@ -462,15 +462,15 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 | fileshares_fileshare_get | Get details of file share <file_share_name> in resource group <resource_group_name> |
 | fileshares_fileshare_get | Show me the file share <file_share_name> in resource group <resource_group_name> |
 | fileshares_fileshare_get | What file shares exist in resource group <resource_group_name>? |
-| fileshares_fileshare_limits_get | Get the file share limits for subscription <subscription> in location <location> |
-| fileshares_fileshare_limits_get | What are the file share limits in my subscription for location <location>? |
-| fileshares_fileshare_limits_get | Show me the file share service limits in location <location> |
-| fileshares_fileshare_nameavailability_check | Check if file share name <file_share_name> is available in subscription <subscription> |
-| fileshares_fileshare_nameavailability_check | Is the file share name <file_share_name> available? |
-| fileshares_fileshare_nameavailability_check | Verify availability of file share name <file_share_name> |
-| fileshares_fileshare_provisioningrecommendation_get | Get provisioning recommendations for file share <file_share_name> in resource group <resource_group_name> |
-| fileshares_fileshare_provisioningrecommendation_get | Show me provisioning recommendations for file share <file_share_name> |
-| fileshares_fileshare_provisioningrecommendation_get | What are the recommended provisioning settings for file share <file_share_name>? |
+| fileshares_limits | Get the file share limits for subscription <subscription> in location <location> |
+| fileshares_limits | What are the file share limits in my subscription for location <location>? |
+| fileshares_limits | Show me the file share service limits in location <location> |
+| fileshares_fileshare_check-name-availability | Check if file share name <file_share_name> is available in subscription <subscription> |
+| fileshares_fileshare_check-name-availability | Is the file share name <file_share_name> available? |
+| fileshares_fileshare_check-name-availability | Verify availability of file share name <file_share_name> |
+| fileshares_rec | Get provisioning recommendations for file share <file_share_name> in resource group <resource_group_name> |
+| fileshares_rec | Show me provisioning recommendations for file share <file_share_name> |
+| fileshares_rec | What are the recommended provisioning settings for file share <file_share_name>? |
 | fileshares_fileshare_snapshot_create | Create a snapshot of file share <file_share_name> in resource group <resource_group_name> |
 | fileshares_fileshare_snapshot_create | Create a snapshot for file share <file_share_name> in resource group <resource_group_name> |
 | fileshares_fileshare_snapshot_create | Take a snapshot of file share <file_share_name> |
@@ -492,9 +492,9 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 | fileshares_fileshare_update | Update file share <file_share_name> in resource group <resource_group_name> |
 | fileshares_fileshare_update | Update the provisioned storage for file share <file_share_name> to 200 GB |
 | fileshares_fileshare_update | Modify file share <file_share_name> in resource group <resource_group_name> with new settings |
-| fileshares_fileshare_usage_get | Get usage data for file share <file_share_name> in resource group <resource_group_name> |
-| fileshares_fileshare_usage_get | Show me the usage statistics for file share <file_share_name> |
-| fileshares_fileshare_usage_get | What is the current usage of file share <file_share_name>? |
+| fileshares_usage | Get usage data for file share <file_share_name> in resource group <resource_group_name> |
+| fileshares_usage | Show me the usage statistics for file share <file_share_name> |
+| fileshares_usage | What is the current usage of file share <file_share_name>? |
 
 ## Azure Function App
 
@@ -647,13 +647,13 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 | managedlustre_fs_blob_autoexport_create | Create an autoexport job for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_autoexport_cancel | Cancel the autoexport job <job_name> for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_autoexport_get | Get the details of autoexport job <job_name> for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
-| managedlustre_fs_blob_autoexport_list | List all autoexport jobs for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
+| managedlustre_fs_blob_autoexport_get | Show the list of autoexport jobs for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_autoexport_delete | Delete the autoexport job <job_name> for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_autoimport_create | Create an autoimport job for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_autoimport_cancel | Cancel the autoimport job <job_name> for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_autoimport_delete | Delete the autoimport job <job_name> for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_autoimport_get | Get the details of autoimport job <job_name> for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
-| managedlustre_fs_blob_autoimport_list | List all autoimport jobs for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
+| managedlustre_fs_blob_autoimport_get | Get the details of all the autoimport jobs for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_import_create | Create a one-time import job for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_import_get | Get the details of import job <job_name> for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
 | managedlustre_fs_blob_import_get | List all one-time import jobs for the Azure Managed Lustre filesystem <filesystem_name> in resource group <resource_group_name> |
@@ -1007,6 +1007,34 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 |:----------|:----------|
 | azureterraformbestpractices_get | Fetch the Azure Terraform best practices |
 | azureterraformbestpractices_get | Show me the Azure Terraform best practices and generate code sample to get a secret from Azure Key Vault |
+
+## Azure Terraform
+
+| Tool Name | Test Prompt |
+|:----------|:----------|
+| azureterraform_azurerm_get | Get the documentation for azurerm_virtual_network |
+| azureterraform_azurerm_get | Show me the Terraform provider arguments for azurerm_storage_account |
+| azureterraform_azurerm_get | Get the data source documentation for azurerm_subscription |
+| azureterraform_azurerm_get | Get the Terraform AzureRM provider documentation for the 'sku' argument of azurerm_storage_account |
+| azureterraform_azapi_get | Get AzAPI Terraform provider documentation for Microsoft.Storage/storageAccounts |
+| azureterraform_azapi_get | Get AzAPI docs for Microsoft.Network/virtualNetworks |
+| azureterraform_azapi_get | Get AzAPI Terraform provider documentation for Microsoft.Compute/virtualMachines with API version 2024-07-01 |
+| azureterraform_avm_list | List all available Azure Verified Modules |
+| azureterraform_avm_list | Show me the available AVM modules for Terraform |
+| azureterraform_avm_versions | Show all versions of avm-res-network-virtualnetwork |
+| azureterraform_avm_versions | What versions are available for avm-res-storage-storageaccount? |
+| azureterraform_avm_get | Get the documentation for avm-res-storage-storageaccount version 0.1.0 |
+| azureterraform_avm_get | Get the documentation for the latest version of Azure Verified Module avm-res-network-virtualnetwork |
+| azureterraform_aztfexport_resource | Export the resource /subscriptions/<subscription>/resourceGroups/<resource-group>/providers/Microsoft.Storage/storageAccounts/<account> to Terraform |
+| azureterraform_aztfexport_resource | Generate an aztfexport command to export a single Azure resource to Terraform |
+| azureterraform_aztfexport_resourcegroup | Export all resources in resource group my-rg to Terraform |
+| azureterraform_aztfexport_resourcegroup | Export resource group my-rg to Terraform using the azapi provider |
+| azureterraform_aztfexport_query | Export all storage accounts in my subscription using a resource graph query |
+| azureterraform_aztfexport_query | Generate an aztfexport query command to export resources matching "type == 'Microsoft.Storage/storageAccounts'" |
+| azureterraform_conftest_workspace | Validate Terraform files in ./my-terraform-folder against Azure security policies |
+| azureterraform_conftest_workspace | Validate Terraform files in ./infra using the avmsec policy set |
+| azureterraform_conftest_plan | Validate my Terraform plan file against Azure-Proactive-Resiliency-Library-v2 policies |
+| azureterraform_conftest_plan | Validate a Terraform plan JSON file in ./plan-output against Azure policies with high severity filter |
 
 ## Azure Virtual Desktop
 
