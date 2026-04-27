@@ -177,7 +177,7 @@ public sealed class CommandFactoryToolLoader(
             };
         }
 
-        var commandContext = new CommandContext(_serviceProvider, activity);
+        var commandContext = new CommandContext(_serviceProvider, activity, request.Server);
 
         // Check if this tool requires elicitation for sensitive or destructive operations
         var metadata = command.Metadata;

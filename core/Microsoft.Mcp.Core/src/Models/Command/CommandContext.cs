@@ -28,13 +28,35 @@ public class CommandContext
     public Activity? Activity { get; }
 
     /// <summary>
+    /// The MCP server handling the current tool call, when the command was invoked through the
+    /// MCP protocol. <c>null</c> when the command is invoked outside of an MCP request (e.g. CLI).
+    /// Commands that need to use MCP capabilities such as sampling or elicitation should access
+    /// the server through this property and gracefully handle the <c>null</c> case.
+    /// </summary>
+    public McpServer? McpServer { get; }
+
+    /// <summary>
     /// Creates a new command context
     /// </summary>
     /// <param name="serviceProvider">The service provider for dependency injection</param>
+    /// <param name="activity">Optional telemetry activity associated with the request.</param>
     public CommandContext(IServiceProvider serviceProvider, Activity? activity = default)
+        : this(serviceProvider, activity, null)
+    {
+    }
+
+    /// <summary>
+    /// Creates a new command context with access to the active MCP server for protocol features
+    /// such as sampling and elicitation.
+    /// </summary>
+    /// <param name="serviceProvider">The service provider for dependency injection</param>
+    /// <param name="activity">Optional telemetry activity associated with the request.</param>
+    /// <param name="mcpServer">The MCP server handling the current tool call, or <c>null</c> when not invoked via MCP.</param>
+    public CommandContext(IServiceProvider serviceProvider, Activity? activity, McpServer? mcpServer)
     {
         _serviceProvider = serviceProvider;
         Activity = activity;
+        McpServer = mcpServer;
         Response = new CommandResponse
         {
             Status = HttpStatusCode.OK,

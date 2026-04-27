@@ -414,7 +414,7 @@ public sealed class NamespaceToolLoader(
             }
 
             var currentActivity = Activity.Current;
-            var commandContext = new CommandContext(_serviceProvider, currentActivity);
+            var commandContext = new CommandContext(_serviceProvider, currentActivity, request.Server);
             var realCommand = cmd.GetCommand();
 
             ParseResult commandOptions;
