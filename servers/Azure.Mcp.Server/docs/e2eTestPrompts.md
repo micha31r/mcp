@@ -533,10 +533,10 @@ This file contains prompts used for end-to-end testing to ensure each tool is in
 
 | Tool Name | Test Prompt |
 |:----------|:----------|
-| insights_subscription_get | Give me insights about my subscription <subscription_id> |
-| insights_subscription_get | Analyze the resources in subscription <subscription_id> and tell me what patterns you see |
-| insights_subscription_get | What can you tell me about the infrastructure in <subscription_name>? |
-| insights_tenant_get | Give me insights about my tenant |
+| insights_get | Give me insights about my subscription <subscription_id> |
+| insights_get | Analyze the resources in subscription <subscription_id> and tell me what patterns you see |
+| insights_get | What can you tell me about the infrastructure in <subscription_name>? |
+| insights_get | Give me insights about my subscription tailored to building an internal web app for the finance team with a relational database backend |
 
 ## Azure Key Vault
 

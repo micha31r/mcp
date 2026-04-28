@@ -4,14 +4,11 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using Azure.Mcp.Tools.Insights.Commands.Subscription;
-using Azure.Mcp.Tools.Insights.Commands.Tenant;
 using Azure.Mcp.Tools.Insights.Models;
 
 namespace Azure.Mcp.Tools.Insights.Commands;
 
-[JsonSerializable(typeof(SubscriptionGetCommand.SubscriptionGetCommandResult))]
-[JsonSerializable(typeof(TenantGetCommand.TenantGetCommandResult))]
+[JsonSerializable(typeof(InsightsGetCommand.InsightsGetCommandResult))]
 [JsonSerializable(typeof(InsightsResult))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(JsonElement))]

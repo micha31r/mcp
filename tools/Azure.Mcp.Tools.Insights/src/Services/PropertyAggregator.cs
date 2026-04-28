@@ -2,46 +2,167 @@
 // Licensed under the MIT License.
 
 using System.Collections.Frozen;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Azure.Mcp.Tools.Insights.Services.Models;
 
 namespace Azure.Mcp.Tools.Insights.Services;
 
 /// <summary>
 /// Aggregates property value frequencies from Azure Resource Graph rows.
-/// Port of the Python prototype's <c>walk_properties</c> / <c>_insert_aggregation</c> /
-/// <c>_emit_aggregation</c> / <c>aggregate_resources</c> helpers.
+/// Faithful port of the Python prototype in <c>baseline.ipynb</c> cells 4-5
+/// (filtering, walking, PII scrubbing, leaf whitelist, fraction emission).
 ///
-/// Behavior:
-/// - For each row, walk <c>location</c>, <c>sku</c>, and <c>properties</c> recursively
-///   (max depth = 5). Values deeper than the cap are dropped.
-/// - Lists become a single scalar leaf <c>&lt;list[N]&gt;</c> capturing only the count.
-/// - <c>null</c> values are skipped.
-/// - On type collisions (scalar vs object at the same path) the first-seen shape wins;
-///   the conflicting later value is dropped silently.
-/// - Each scalar leaf emits the top-3 most-common observed values mapped to their counts.
-/// - Resource type keys are lowercased.
+/// Behavior summary:
+/// - Drops "noise" resource types: AUTO_CREATED_TYPES, INTERNAL_MS_RP_PREFIXES,
+///   AUTO_MANAGED_SUBRESOURCE_TYPES, MARKETPLACE_TYPES, plus ARM child types
+///   (>= 2 slashes) for itemset-mining purposes.
+/// - For each retained row, walks <c>location</c>, <c>kind</c>, <c>sku</c>,
+///   <c>identity.type</c>, and <c>properties</c> (max depth = 5).
+/// - Skips properties whose key matches the PII deny regex and scalar values
+///   matching PII value patterns (IPv4/IPv6/GUID/URL/email/JWT/base64).
+/// - Aggregates only leaves whose name is in <see cref="PropertyLeafWhitelist"/>.
+/// - Emits the top-3 most-common values per leaf as fractions (count / total),
+///   rounded to 3 decimals, ordered by descending count then ordinal key.
 /// </summary>
-internal static class PropertyAggregator
+internal static partial class PropertyAggregator
 {
     internal const int MaxPropertyDepth = 5;
     internal const int TopValuesPerLeaf = 3;
-
-    // Drop ARM child types (>=2 slashes, e.g. ".../virtualmachines/extensions") as
-    // auto-created plumbing. Mirrors DROP_ARM_CHILD_TYPES in the Python prototype.
     internal const bool DropArmChildTypes = true;
 
-    // Denylist of top-level ARM types that Azure auto-provisions as a side effect of
-    // creating something else (no design signal). Mirrors AUTO_CREATED_TYPES in Python.
+    // Mirrors AUTO_CREATED_TYPES from baseline.ipynb cell 4.
     internal static readonly FrozenSet<string> AutoCreatedTypes = new[]
     {
         "microsoft.alertsmanagement/smartdetectoralertrules",
+        "microsoft.insights/actiongroups",
+        "microsoft.alertsmanagement/prometheusrulegroups",
+        "microsoft.security/automations",
+        "microsoft.security/pricings",
+        "microsoft.operationsmanagement/solutions",
+        "microsoft.security/iotsecuritysolutions",
+        "microsoft.network/networkwatchers",
+        "microsoft.advisor/recommendations",
     }.ToFrozenSet(StringComparer.Ordinal);
 
+    // Mirrors INTERNAL_MS_RP_PREFIXES from baseline.ipynb cell 4.
+    internal static readonly string[] InternalMsRpPrefixes =
+    [
+        "microsoft.portalservices/",
+        "microsoft.cloudtest/",
+        "microsoft.hydra/",
+        "microsoft.swiftlet/",
+        "microsoft.compute/swiftlets",
+        "microsoft.fairfieldgardens/",
+        "microsoft.footprintmonitoring/",
+        "microsoft.saashub/",
+        "microsoft.visualstudio/",
+    ];
+
+    // Mirrors AUTO_MANAGED_SUBRESOURCE_TYPES from baseline.ipynb cell 4.
+    internal static readonly FrozenSet<string> AutoManagedSubresourceTypes = new[]
+    {
+        "microsoft.containerregistry/registries/replications",
+        "microsoft.containerregistry/registries/webhooks",
+        "microsoft.compute/capacityreservationgroups/capacityreservations",
+        "microsoft.compute/hostgroups/hosts",
+        "microsoft.compute/galleries/images/versions",
+        "microsoft.network/networkmanagers/ipampools",
+        "microsoft.network/networkmanagers/verifierworkspaces",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    // Mirrors MARKETPLACE_TYPES from baseline.ipynb cell 4.
+    internal static readonly FrozenSet<string> MarketplaceTypes = new[]
+    {
+        "microsoft.solutions/applications",
+        "microsoft.solutions/appliances",
+        "microsoft.saas/resources",
+        "microsoft.saashub/cloudservices",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    // Mirrors PROPERTY_LEAF_WHITELIST from baseline.ipynb cell 5.
+    internal static readonly FrozenSet<string> PropertyLeafWhitelist = new[]
+    {
+        "location", "kind",
+        "sku", "name", "tier", "family", "capacity", "size",
+        "publicnetworkaccess", "restrictoutboundnetworkaccess",
+        "publicnetworkaccessforingestion", "publicnetworkaccessforquery",
+        "defaultaction", "bypass",
+        "disablelocalauth", "enablerbacauthorization",
+        "minimumtlsversion", "minimaltlsversion",
+        "identity",
+        "keysource", "enabledoubleencryption", "enablediskencryption",
+        "infrastructureencryption", "requireinfrastructureencryption",
+        "zoneredundant", "zoneredundancy", "redundancymode", "replication",
+        "platformfaultdomaincount",
+        "backupretentionintervalinhours", "backupintervalinminutes",
+        "backupstorageredundancy",
+        "softdeleteretentionindays", "enablesoftdelete", "enablepurgeprotection",
+        "ostype", "hypervgeneration", "licensetype",
+        "accesstier", "largefilesharesstate", "allowsharedkeyaccess",
+        "enablehttpstrafficonly", "supportshttpstrafficonly",
+    }.ToFrozenSet(StringComparer.Ordinal);
+
+    // Mirrors _KEY_DENY_RE from baseline.ipynb cell 5.
+    [GeneratedRegex(
+        @"(secret|password|credential|token|sas|certificate|thumbprint|fingerprint|connection|connstr|admin(istrator)?(user|login|name)|private(ip|key|address)|publicip|ipaddress|fqdn|hostname|host_name|endpoint|url|uri|email|mail|principalid|tenantid|subscriptionid|objectid|clientid|appid|customsubdomain|customdomain|key$|^key|accountkey|accesskey|primarykey|secondarykey|sharedkey)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex KeyDenyRegex();
+
+    // Mirrors _VALUE_DENY_PATTERNS from baseline.ipynb cell 5.
+    private static readonly Regex[] ValueDenyPatterns =
+    [
+        new Regex(@"^\d{1,3}(\.\d{1,3}){3}$", RegexOptions.CultureInvariant),
+        new Regex(@"^[0-9a-f:]{6,}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+        new Regex(@"^[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+        new Regex(@"^https?://", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant),
+        new Regex(@"^[^@]+@[^@]+\.[^@]+$", RegexOptions.CultureInvariant),
+        new Regex(@"^eyJ[A-Za-z0-9_-]+\.", RegexOptions.CultureInvariant),
+        new Regex(@"^[A-Za-z0-9+/]{40,}={0,2}$", RegexOptions.CultureInvariant),
+    ];
+
+    private static bool IsPiiKey(string key) => KeyDenyRegex().IsMatch(key);
+
+    private static bool IsPiiValue(string value)
+    {
+        for (int i = 0; i < ValueDenyPatterns.Length; i++)
+        {
+            if (ValueDenyPatterns[i].IsMatch(value))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>Mirrors Python <c>_is_noise</c>: drops a top-level resource type.</summary>
+    internal static bool IsNoise(string armType)
+    {
+        if (string.IsNullOrEmpty(armType))
+        {
+            return false;
+        }
+        if (AutoCreatedTypes.Contains(armType)
+            || AutoManagedSubresourceTypes.Contains(armType)
+            || MarketplaceTypes.Contains(armType))
+        {
+            return true;
+        }
+        for (int i = 0; i < InternalMsRpPrefixes.Length; i++)
+        {
+            if (armType.StartsWith(InternalMsRpPrefixes[i], StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /// <summary>
-    /// Returns true when the given lowercased ARM type should be dropped from
-    /// aggregation as an auto-created side-effect resource.
+    /// Mirrors Python <c>_is_auto_created</c>: superset of <see cref="IsNoise"/> that also
+    /// drops ARM child types (>= 2 slashes) used for itemset mining.
     /// </summary>
     internal static bool IsAutoCreated(string armType)
     {
@@ -62,15 +183,15 @@ internal static class PropertyAggregator
             }
         }
 
-        return AutoCreatedTypes.Contains(armType);
+        return IsNoise(armType);
     }
 
     /// <summary>
     /// Aggregate the given ARG rows into a <see cref="SubscriptionAggregation"/>.
-    ///
     /// Rows whose ARM type matches <see cref="IsAutoCreated"/> are dropped before
-    /// aggregation; the dropped types are surfaced via
-    /// <see cref="SubscriptionAggregation.FilteredAutoCreatedTypes"/> for transparency.
+    /// aggregation; their types are surfaced via
+    /// <see cref="SubscriptionAggregation.FilteredAutoCreatedTypes"/> for diagnostics
+    /// (this list is not forwarded to the LLM).
     /// </summary>
     public static SubscriptionAggregation Aggregate(IEnumerable<JsonElement> rows)
     {
@@ -115,7 +236,6 @@ internal static class PropertyAggregator
 
             state.Count++;
 
-            // Source object: location + sku + properties (matches Python prototype)
             foreach (var (path, value) in WalkRow(row))
             {
                 Insert(state.Tree, path, value);
@@ -140,24 +260,42 @@ internal static class PropertyAggregator
 
     private static IEnumerable<(IReadOnlyList<string> Path, string Value)> WalkRow(JsonElement row)
     {
-        // location is a top-level scalar in ARG output
+        // Top-level scalars: location, kind.
         var location = TryGetString(row, "location");
         if (!string.IsNullOrEmpty(location))
         {
-            yield return (new[] { "location" }, location);
+            yield return (new[] { "location" }, location.ToLowerInvariant());
         }
 
+        var kind = TryGetString(row, "kind");
+        if (!string.IsNullOrEmpty(kind))
+        {
+            yield return (new[] { "kind" }, kind.ToLowerInvariant());
+        }
+
+        // sku: walk recursively under "sku".
         if (row.TryGetProperty("sku", out var sku) && sku.ValueKind == JsonValueKind.Object)
         {
-            foreach (var pair in WalkObject(sku, new List<string> { "sku" }, depth: 2))
+            foreach (var pair in WalkObject(sku, new List<string> { "sku" }, depth: 1))
             {
                 yield return pair;
             }
         }
 
+        // identity: only the .type scalar (matches Python).
+        if (row.TryGetProperty("identity", out var identity) && identity.ValueKind == JsonValueKind.Object)
+        {
+            var idType = TryGetString(identity, "type");
+            if (!string.IsNullOrEmpty(idType))
+            {
+                yield return (new[] { "identity" }, idType);
+            }
+        }
+
+        // properties: walk recursively under "properties".
         if (row.TryGetProperty("properties", out var props) && props.ValueKind == JsonValueKind.Object)
         {
-            foreach (var pair in WalkObject(props, new List<string> { "properties" }, depth: 2))
+            foreach (var pair in WalkObject(props, new List<string> { "properties" }, depth: 1))
             {
                 yield return pair;
             }
@@ -169,38 +307,77 @@ internal static class PropertyAggregator
         List<string> path,
         int depth)
     {
+        if (depth > MaxPropertyDepth)
+        {
+            yield break;
+        }
+
         foreach (var prop in node.EnumerateObject())
         {
-            var newPath = new List<string>(path) { prop.Name };
-            var value = prop.Value;
-
-            switch (value.ValueKind)
+            var keyLower = prop.Name.ToLowerInvariant();
+            if (IsPiiKey(keyLower))
             {
-                case JsonValueKind.Object:
-                    if (depth >= MaxPropertyDepth)
-                    {
-                        continue;
-                    }
-                    foreach (var pair in WalkObject(value, newPath, depth + 1))
+                continue;
+            }
+
+            var newPath = new List<string>(path) { keyLower };
+            foreach (var pair in WalkValue(prop.Value, newPath, depth + 1))
+            {
+                yield return pair;
+            }
+        }
+    }
+
+    private static IEnumerable<(IReadOnlyList<string> Path, string Value)> WalkValue(
+        JsonElement value,
+        List<string> path,
+        int depth)
+    {
+        switch (value.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var pair in WalkObject(value, path, depth))
+                {
+                    yield return pair;
+                }
+                break;
+            case JsonValueKind.Array:
+                // Python iterates list elements with the same path; mirror that.
+                foreach (var item in value.EnumerateArray())
+                {
+                    foreach (var pair in WalkValue(item, path, depth + 1))
                     {
                         yield return pair;
                     }
-                    break;
-                case JsonValueKind.Array:
-                    yield return (newPath, $"<list[{value.GetArrayLength()}]>");
-                    break;
-                case JsonValueKind.Null:
-                case JsonValueKind.Undefined:
-                    continue;
-                default:
-                    yield return (newPath, ScalarToString(value));
-                    break;
-            }
+                }
+                break;
+            case JsonValueKind.Null:
+            case JsonValueKind.Undefined:
+                yield break;
+            default:
+                var scalar = ScalarToString(value).Trim();
+                if (!string.IsNullOrEmpty(scalar) && !IsPiiValue(scalar))
+                {
+                    yield return (path, scalar);
+                }
+                break;
         }
     }
 
     private static void Insert(JsonObject tree, IReadOnlyList<string> path, string value)
     {
+        if (path.Count == 0)
+        {
+            return;
+        }
+
+        // Whitelist gate: only aggregate counters for whitelisted leaf names.
+        var leafName = path[^1];
+        if (!PropertyLeafWhitelist.Contains(leafName))
+        {
+            return;
+        }
+
         var cursor = tree;
         for (int i = 0; i < path.Count - 1; i++)
         {
@@ -213,8 +390,6 @@ internal static class PropertyAggregator
             }
             else if (existing is JsonObject obj)
             {
-                // If this interior node has already been finalized as a counter leaf,
-                // first-seen shape wins — don't descend into it as if it were a branch.
                 if (IsCounter(obj))
                 {
                     return;
@@ -223,22 +398,18 @@ internal static class PropertyAggregator
             }
             else
             {
-                // Type collision: a scalar/leaf already lives here. First-seen shape wins.
                 return;
             }
         }
 
-        var leafKey = path[^1];
-        if (!cursor.TryGetPropertyValue(leafKey, out var leaf) || leaf is null)
+        if (!cursor.TryGetPropertyValue(leafName, out var leaf) || leaf is null)
         {
-            cursor[leafKey] = new JsonObject { [value] = JsonValue.Create(1) };
+            cursor[leafName] = new JsonObject { [value] = JsonValue.Create(1) };
             return;
         }
 
         if (leaf is JsonObject leafCounter)
         {
-            // Detect that leafCounter is a counter (all values are numeric primitives).
-            // If a nested object already lives at this path, first-seen shape wins.
             if (!IsCounter(leafCounter))
             {
                 return;
@@ -253,7 +424,6 @@ internal static class PropertyAggregator
                 leafCounter[value] = JsonValue.Create(1);
             }
         }
-        // else: scalar leaf collision, drop silently
     }
 
     private static bool IsCounter(JsonObject obj)
@@ -281,19 +451,42 @@ internal static class PropertyAggregator
             {
                 if (IsCounter(child))
                 {
-                    result[kvp.Key] = TopN(child, TopValuesPerLeaf);
+                    var top = TopNFractions(child, TopValuesPerLeaf);
+                    if (top.Count > 0)
+                    {
+                        result[kvp.Key] = top;
+                    }
                 }
                 else
                 {
-                    result[kvp.Key] = Emit(child);
+                    var sub = Emit(child);
+                    if (sub.Count > 0)
+                    {
+                        result[kvp.Key] = sub;
+                    }
                 }
             }
         }
         return result;
     }
 
-    private static JsonObject TopN(JsonObject counter, int n)
+    private static JsonObject TopNFractions(JsonObject counter, int n)
     {
+        long total = 0;
+        foreach (var kvp in counter)
+        {
+            if (kvp.Value is JsonValue jv && jv.TryGetValue<int>(out var c))
+            {
+                total += c;
+            }
+        }
+
+        var result = new JsonObject();
+        if (total <= 0)
+        {
+            return result;
+        }
+
         var ordered = counter
             .Where(kvp => kvp.Value is JsonValue jv && jv.TryGetValue<int>(out _))
             .Select(kvp => (Key: kvp.Key, Count: kvp.Value!.GetValue<int>()))
@@ -301,10 +494,10 @@ internal static class PropertyAggregator
             .ThenBy(t => t.Key, StringComparer.Ordinal)
             .Take(n);
 
-        var result = new JsonObject();
         foreach (var (key, count) in ordered)
         {
-            result[key] = JsonValue.Create(count);
+            var fraction = Math.Round((double)count / total, 3, MidpointRounding.AwayFromZero);
+            result[key] = JsonValue.Create(fraction);
         }
         return result;
     }
@@ -318,13 +511,9 @@ internal static class PropertyAggregator
         _ => value.GetRawText(),
     };
 
-    private static string? TryGetString(JsonElement element, string propertyName)
+    private static string? TryGetString(JsonElement obj, string name)
     {
-        if (element.ValueKind != JsonValueKind.Object)
-        {
-            return null;
-        }
-        if (!element.TryGetProperty(propertyName, out var prop))
+        if (!obj.TryGetProperty(name, out var prop))
         {
             return null;
         }
@@ -333,7 +522,7 @@ internal static class PropertyAggregator
 
     private sealed class ResourceState
     {
-        public int Count;
-        public JsonObject Tree { get; } = new();
+        public int Count { get; set; }
+        public JsonObject Tree { get; } = new JsonObject();
     }
 }

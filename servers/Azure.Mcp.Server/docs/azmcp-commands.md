@@ -2297,20 +2297,11 @@ azmcp functions template get --language <language> \
 
 ### Azure Insights Operations
 
-#### Subscription Insights
-
 ```bash
-# Get insights for a subscription based on existing resources (via Azure Resource Graph + MCP sampling)
+# Get architectural insights for a subscription based on existing resources (via Azure Resource Graph + MCP sampling)
 # ❌ Destructive | ✅ Idempotent | ✅ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp insights subscription get --subscription <subscription>
-```
-
-#### Tenant Insights
-
-```bash
-# Get insights for a tenant (placeholder — not yet implemented)
-# ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp insights tenant get
+azmcp insights get --subscription <subscription> \
+                   [--query <user-intent>]
 ```
 
 ### Azure Key Vault Operations
