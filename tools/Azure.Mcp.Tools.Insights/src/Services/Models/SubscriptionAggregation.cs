@@ -4,18 +4,17 @@
 namespace Azure.Mcp.Tools.Insights.Services.Models;
 
 /// <summary>
-/// Aggregated infrastructure data for a single subscription. Pairs the per-resource-type
-/// property aggregations with subscription-scoped context (distinct resource group count
-/// and the list of ARM types that were filtered out as auto-created plumbing).
+/// Aggregated infrastructure data for a single scope (one subscription or all subscriptions in
+/// a tenant). Pairs the per-resource-type property aggregations with scope-wide counts.
 /// </summary>
 /// <param name="ResourceTypes">Per-ARM-resource-type property value frequencies.</param>
-/// <param name="ResourceGroupCount">Distinct lowercased resource group names observed
-/// across the subscription's user-managed resources (after filtering).</param>
-/// <param name="FilteredAutoCreatedTypes">Sorted, distinct list of ARM types that were
-/// dropped from the aggregation because they are auto-created side-effect resources
-/// (e.g. ARM child types like <c>.../virtualmachines/extensions</c>) carrying no design
-/// signal.</param>
+/// <param name="SubscriptionCount">Number of subscriptions covered by the aggregation.</param>
+/// <param name="ResourceGroupCount">Distinct lowercased resource group names observed across
+/// the user-managed resources in the scope (after filtering).</param>
+/// <param name="FilteredAutoCreatedTypes">Sorted list of ARM types that were dropped because
+/// they are auto-created side-effect resources carrying no design signal. Diagnostic only.</param>
 public sealed record SubscriptionAggregation(
     IReadOnlyDictionary<string, ResourceTypeAggregation> ResourceTypes,
+    int SubscriptionCount,
     int ResourceGroupCount,
     IReadOnlyList<string> FilteredAutoCreatedTypes);

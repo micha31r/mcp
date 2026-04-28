@@ -3,14 +3,13 @@
 
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using Azure.Mcp.Core.Commands.Subscription;
-using Azure.Mcp.Tools.Insights.Models;
 using Azure.Mcp.Tools.Insights.Options;
 using Azure.Mcp.Tools.Insights.Services;
 using Azure.Mcp.Tools.Insights.Services.Models;
 using Microsoft.Extensions.Logging;
 using Microsoft.Mcp.Core.Commands;
 using Microsoft.Mcp.Core.Extensions;
+using Microsoft.Mcp.Core.Helpers;
 using Microsoft.Mcp.Core.Models.Command;
 using Microsoft.Mcp.Core.Models.Option;
 
@@ -20,12 +19,11 @@ public sealed class InsightsGetCommand(
     ILogger<InsightsGetCommand> logger,
     IInsightsService insightsService,
     ISamplingService samplingService)
-    : SubscriptionCommand<InsightsGetOptions>()
+    : GlobalCommand<InsightsGetOptions>()
 {
     private const string CommandTitle = "Get Azure Infrastructure Insights";
     private const int SamplingMaxTokens = 4000;
 
-    // Verbatim port of INSIGHTS_PROMPT from baseline.ipynb cell 7.
     private const string SystemPrompt = """
         # Role and Objective
         You are an expert Azure Insight Agent. Your mission is to analyze the user's existing infrastructure data and produce insights that inform downstream infrastructure plan generation.
@@ -101,27 +99,23 @@ public sealed class InsightsGetCommand(
 
     public override string Description =>
         """
-        Derives architectural insights from an Azure subscription's existing infrastructure.
-        Queries Azure Resource Graph for all user-managed resources, filters out auto-created
-        / marketplace / internal-1P plumbing, aggregates per-resource-type property value
-        frequencies (region, sku, security posture, identity, redundancy, tagging conventions,
-        etc.) as fractions of the top-3 most-common observed values, and uses MCP sampling to
-        ask the host LLM to produce a JSON object of single-sentence insights describing the
-        dominant patterns.
-
-        Required parameters:
-        - subscription: Subscription ID or name to analyze.
+        Derives architectural insights from existing Azure infrastructure. Queries Azure
+        Resource Graph for user-managed resources, filters out auto-created / marketplace /
+        internal-1P plumbing, aggregates per-resource-type property value frequencies as
+        fractions of the top-3 most-common observed values, and uses MCP sampling to ask the
+        host LLM to return single-sentence insights describing dominant patterns.
 
         Optional parameters:
+        - subscription: Subscription ID or name. When supplied, insights are scoped to that
+          subscription. When omitted, insights are derived across every accessible subscription
+          in the tenant.
         - query: Free-form description of the user's infrastructure intent. When provided,
-          insights are tailored to be relevant to this scenario; when omitted the LLM returns
-          generic tenant-wide architectural insights.
+          insights are tailored to this scenario; when omitted, generic patterns are returned.
 
-        Returns an object with an `insights` array of human-readable insight sentences.
+        Returns an array of insight strings.
 
         Note: This command relies on the MCP sampling capability and is only available when
-        the server is invoked over a transport whose client supports sampling (e.g. an MCP
-        host). It is not available from the plain CLI invocation path.
+        the server is invoked over a transport whose client supports sampling.
         """;
 
     public override string Title => CommandTitle;
@@ -139,12 +133,21 @@ public sealed class InsightsGetCommand(
     protected override void RegisterOptions(Command command)
     {
         base.RegisterOptions(command);
+        // --subscription is optional here: presence selects subscription scope, absence selects tenant scope.
+        command.Options.Add(OptionDefinitions.Common.Subscription);
         command.Options.Add(InsightsOptionDefinitions.Query.AsOptional());
     }
 
     protected override InsightsGetOptions BindOptions(ParseResult parseResult)
     {
         var options = base.BindOptions(parseResult);
+        // Read the raw value (not CommandHelper.GetSubscription, which falls back to env/CLI defaults
+        // and would defeat implicit tenant-scope detection).
+        var subscription = parseResult.GetValueOrDefault<string>(OptionDefinitions.Common.SubscriptionName);
+        if (!string.IsNullOrEmpty(subscription))
+        {
+            options.Subscription = subscription.Trim('"', '\'');
+        }
         options.Query = parseResult.GetValueOrDefault<string>(InsightsOptionDefinitions.QueryName);
         return options;
     }
@@ -170,11 +173,9 @@ public sealed class InsightsGetCommand(
 
         try
         {
-            var aggregation = await _insightsService.AggregateSubscriptionAsync(
-                options.Subscription!,
-                options.Tenant,
-                options.RetryPolicy,
-                cancellationToken);
+            var aggregation = string.IsNullOrEmpty(options.Subscription)
+                ? await _insightsService.AggregateTenantAsync(options.Tenant, options.RetryPolicy, cancellationToken)
+                : await _insightsService.AggregateSubscriptionAsync(options.Subscription, options.Tenant, options.RetryPolicy, cancellationToken);
 
             var payloadJson = BuildPayload(aggregation, options.Query);
 
@@ -185,10 +186,10 @@ public sealed class InsightsGetCommand(
                 SamplingMaxTokens,
                 cancellationToken);
 
-            var result = ParseSamplingResponse(sampled);
+            var insights = ParseInsights(sampled);
 
             context.Response.Results = ResponseResult.Create(
-                new InsightsGetCommandResult(result),
+                new InsightsGetCommandResult(insights),
                 InsightsJsonContext.Default.InsightsGetCommandResult);
         }
         catch (Exception ex)
@@ -203,10 +204,8 @@ public sealed class InsightsGetCommand(
     }
 
     /// <summary>
-    /// Builds the JSON payload sent to the LLM, mirroring the Python prototype's
-    /// <c>{userQuery, resourceContext: {subscriptionCount, resourceGroupCount, resourceTypes}}</c>
-    /// shape from <c>baseline.ipynb</c> cell 6. <paramref name="userQuery"/> is omitted when
-    /// the caller did not supply <c>--query</c>.
+    /// Builds the JSON payload sent to the LLM:
+    /// <c>{ userQuery?, resourceContext: { subscriptionCount, resourceGroupCount, resourceTypes } }</c>.
     /// </summary>
     internal static string BuildPayload(SubscriptionAggregation aggregation, string? userQuery)
     {
@@ -224,107 +223,53 @@ public sealed class InsightsGetCommand(
 
         var resourceContext = new JsonObject
         {
-            ["subscriptionCount"] = 1,
+            ["subscriptionCount"] = aggregation.SubscriptionCount,
             ["resourceGroupCount"] = aggregation.ResourceGroupCount,
             ["resourceTypes"] = resourceTypes,
         };
 
-        var root = new JsonObject
+        if (string.IsNullOrWhiteSpace(userQuery))
         {
-            ["resourceContext"] = resourceContext,
-        };
-
-        if (!string.IsNullOrWhiteSpace(userQuery))
-        {
-            // Insert userQuery first so the field order matches the Python payload.
-            var ordered = new JsonObject
+            var root = new JsonObject
             {
-                ["userQuery"] = userQuery.Trim(),
-                ["resourceContext"] = resourceContext.DeepClone(),
+                ["resourceContext"] = resourceContext,
             };
-            return ordered.ToJsonString();
+            return root.ToJsonString();
         }
 
-        return root.ToJsonString();
+        // userQuery first to match the expected payload order.
+        var ordered = new JsonObject
+        {
+            ["userQuery"] = userQuery.Trim(),
+            ["resourceContext"] = resourceContext,
+        };
+        return ordered.ToJsonString();
     }
 
     /// <summary>
-    /// Parses the LLM response, matching the Python prototype's fallback chain:
-    /// 1. Top-level JSON array of strings.
-    /// 2. JSON object with key <c>insights</c>/<c>Insights</c>/<c>items</c>/<c>results</c>.
-    /// 3. JSON object whose first list-of-strings value contains the insights.
-    /// 4. Otherwise, return the raw text as a single insight with a note.
+    /// Parses the LLM response as <c>{ "insights": [...] }</c>, stripping a surrounding markdown
+    /// code fence if present. Throws on malformed input so that the caller's <c>HandleException</c>
+    /// returns a 500 with the underlying parse error.
     /// </summary>
-    internal static InsightsResult ParseSamplingResponse(string? text)
+    internal static IReadOnlyList<string> ParseInsights(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
-            return new InsightsResult([], "Sampling returned an empty response.");
+            throw new InvalidOperationException("Sampling returned an empty response.");
         }
 
-        var trimmed = text.Trim();
-        var jsonSlice = ExtractJsonSlice(trimmed);
+        var json = StripCodeFence(text.Trim());
 
-        if (jsonSlice is not null)
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind != JsonValueKind.Object
+            || !doc.RootElement.TryGetProperty("insights", out var arr)
+            || arr.ValueKind != JsonValueKind.Array)
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(jsonSlice);
-                var insights = ExtractInsights(doc.RootElement);
-                if (insights is not null)
-                {
-                    return new InsightsResult(insights);
-                }
-            }
-            catch (JsonException)
-            {
-                // fall through to raw-text fallback
-            }
+            throw new InvalidOperationException("Sampling response did not contain an 'insights' array.");
         }
 
-        return new InsightsResult(
-            [trimmed],
-            "Sampling response could not be parsed as a JSON insights payload; returning raw text.");
-    }
-
-    private static IReadOnlyList<string>? ExtractInsights(JsonElement root)
-    {
-        switch (root.ValueKind)
-        {
-            case JsonValueKind.Array:
-                return ToStringList(root);
-
-            case JsonValueKind.Object:
-                foreach (var key in new[] { "insights", "Insights", "items", "results" })
-                {
-                    if (root.TryGetProperty(key, out var match) && match.ValueKind == JsonValueKind.Array)
-                    {
-                        return ToStringList(match);
-                    }
-                }
-
-                foreach (var prop in root.EnumerateObject())
-                {
-                    if (prop.Value.ValueKind == JsonValueKind.Array)
-                    {
-                        var asStrings = ToStringList(prop.Value);
-                        if (asStrings.Count > 0)
-                        {
-                            return asStrings;
-                        }
-                    }
-                }
-                return null;
-
-            default:
-                return null;
-        }
-    }
-
-    private static List<string> ToStringList(JsonElement array)
-    {
-        var list = new List<string>(array.GetArrayLength());
-        foreach (var item in array.EnumerateArray())
+        var list = new List<string>(arr.GetArrayLength());
+        foreach (var item in arr.EnumerateArray())
         {
             if (item.ValueKind == JsonValueKind.String)
             {
@@ -338,44 +283,26 @@ public sealed class InsightsGetCommand(
         return list;
     }
 
-    private static string? ExtractJsonSlice(string text)
+    private static string StripCodeFence(string text)
     {
-        // Try the trimmed text as-is first.
-        if ((text.StartsWith('{') && text.EndsWith('}')) ||
-            (text.StartsWith('[') && text.EndsWith(']')))
+        if (!text.StartsWith("```", StringComparison.Ordinal))
         {
             return text;
         }
 
-        // Otherwise look for the outermost {...} or [...] span.
-        int objStart = text.IndexOf('{');
-        int objEnd = text.LastIndexOf('}');
-        int arrStart = text.IndexOf('[');
-        int arrEnd = text.LastIndexOf(']');
-
-        bool hasObj = objStart >= 0 && objEnd > objStart;
-        bool hasArr = arrStart >= 0 && arrEnd > arrStart;
-
-        if (hasObj && hasArr)
+        var newline = text.IndexOf('\n');
+        if (newline < 0)
         {
-            // Prefer whichever appears first in the string.
-            return objStart <= arrStart
-                ? text.Substring(objStart, objEnd - objStart + 1)
-                : text.Substring(arrStart, arrEnd - arrStart + 1);
+            return text;
         }
 
-        if (hasObj)
+        var inner = text[(newline + 1)..];
+        if (inner.EndsWith("```", StringComparison.Ordinal))
         {
-            return text.Substring(objStart, objEnd - objStart + 1);
+            inner = inner[..^3];
         }
-
-        if (hasArr)
-        {
-            return text.Substring(arrStart, arrEnd - arrStart + 1);
-        }
-
-        return null;
+        return inner.Trim();
     }
 
-    internal record InsightsGetCommandResult(InsightsResult Result);
+    internal record InsightsGetCommandResult(IReadOnlyList<string> Insights);
 }

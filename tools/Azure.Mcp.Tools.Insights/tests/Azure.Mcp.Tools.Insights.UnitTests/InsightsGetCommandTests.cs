@@ -7,6 +7,7 @@ using Azure.Mcp.Tools.Insights.Commands;
 using Azure.Mcp.Tools.Insights.Services;
 using Azure.Mcp.Tools.Insights.Services.Models;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Mcp.Core.Options;
 using Microsoft.Mcp.Tests.Client;
 using NSubstitute;
 using Xunit;
@@ -21,14 +22,6 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
     }
 
     [Fact]
-    public async Task ExecuteAsync_ReturnsBadRequest_WhenSubscriptionMissing()
-    {
-        var response = await ExecuteCommandAsync();
-
-        Assert.Equal(HttpStatusCode.BadRequest, response.Status);
-    }
-
-    [Fact]
     public async Task ExecuteAsync_ReturnsBadRequest_WhenSamplingUnavailable()
     {
         // Default Context.McpServer is null in unit tests.
@@ -37,6 +30,19 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
         Assert.Equal(HttpStatusCode.BadRequest, response.Status);
         Assert.NotNull(response.Message);
         Assert.Contains("sampling", response.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_TenantScope_AlsoRequiresSampling()
+    {
+        // No --subscription should still hit the sampling check before service calls.
+        var response = await ExecuteCommandAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.Status);
+        await Service.DidNotReceive().AggregateSubscriptionAsync(
+            Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<RetryPolicyOptions?>(), Arg.Any<CancellationToken>());
+        await Service.DidNotReceive().AggregateTenantAsync(
+            Arg.Any<string?>(), Arg.Any<RetryPolicyOptions?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -49,87 +55,58 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
     }
 
     [Fact]
-    public void ParseSamplingResponse_InsightsObject_Succeeds()
+    public void ParseInsights_StripsMarkdownCodeFence()
+    {
+        var text = "```json\n{\"insights\": [\"a\", \"b\"]}\n```";
+
+        var result = InsightsGetCommand.ParseInsights(text);
+
+        Assert.Equal(["a", "b"], result);
+    }
+
+    [Fact]
+    public void ParseInsights_PlainObject_Succeeds()
     {
         var text = """{"insights": ["one", "two", "three"]}""";
 
-        var result = InsightsGetCommand.ParseSamplingResponse(text);
+        var result = InsightsGetCommand.ParseInsights(text);
 
-        Assert.Equal(3, result.Insights.Count);
-        Assert.Equal(["one", "two", "three"], result.Insights);
-        Assert.Null(result.Note);
+        Assert.Equal(["one", "two", "three"], result);
     }
 
     [Fact]
-    public void ParseSamplingResponse_StrictJsonArray_Succeeds()
+    public void ParseInsights_SkipsNonStringEntries()
     {
-        var text = """["a", "b"]""";
+        var text = """{"insights": ["a", 42, null, "b"]}""";
 
-        var result = InsightsGetCommand.ParseSamplingResponse(text);
+        var result = InsightsGetCommand.ParseInsights(text);
 
-        Assert.Equal(["a", "b"], result.Insights);
-        Assert.Null(result.Note);
+        Assert.Equal(["a", "b"], result);
     }
 
     [Fact]
-    public void ParseSamplingResponse_AlternateKeys_Succeeds()
+    public void ParseInsights_EmptyOrWhitespace_Throws()
     {
-        var text = """{"items": ["x", "y"]}""";
-
-        var result = InsightsGetCommand.ParseSamplingResponse(text);
-
-        Assert.Equal(["x", "y"], result.Insights);
-        Assert.Null(result.Note);
+        Assert.Throws<InvalidOperationException>(() => InsightsGetCommand.ParseInsights("   "));
     }
 
     [Fact]
-    public void ParseSamplingResponse_FirstListOfStrings_FallbackSucceeds()
+    public void ParseInsights_MissingInsightsKey_Throws()
     {
-        // No recognised key, but value is a list of strings.
-        var text = """{"unrecognised": ["alpha", "beta"]}""";
-
-        var result = InsightsGetCommand.ParseSamplingResponse(text);
-
-        Assert.Equal(["alpha", "beta"], result.Insights);
-        Assert.Null(result.Note);
+        Assert.Throws<InvalidOperationException>(
+            () => InsightsGetCommand.ParseInsights("""{"other": ["a"]}"""));
     }
 
     [Fact]
-    public void ParseSamplingResponse_ExtractsObjectFromSurroundingText()
+    public void ParseInsights_NotJson_Throws()
     {
-        var text = """Here is the JSON: {"insights": ["only-one"]} -- end.""";
-
-        var result = InsightsGetCommand.ParseSamplingResponse(text);
-
-        Assert.Equal(["only-one"], result.Insights);
-        Assert.Null(result.Note);
-    }
-
-    [Fact]
-    public void ParseSamplingResponse_FallsBackToRawText_WhenNotJson()
-    {
-        var text = "Not JSON at all.";
-
-        var result = InsightsGetCommand.ParseSamplingResponse(text);
-
-        Assert.Single(result.Insights);
-        Assert.Equal("Not JSON at all.", result.Insights[0]);
-        Assert.NotNull(result.Note);
-    }
-
-    [Fact]
-    public void ParseSamplingResponse_EmptyOrWhitespace_ReturnsEmptyWithNote()
-    {
-        var result = InsightsGetCommand.ParseSamplingResponse("   ");
-
-        Assert.Empty(result.Insights);
-        Assert.NotNull(result.Note);
+        Assert.ThrowsAny<JsonException>(() => InsightsGetCommand.ParseInsights("Not JSON at all."));
     }
 
     [Fact]
     public void BuildPayload_OmitsUserQuery_WhenNotProvided()
     {
-        var aggregation = SampleAggregation();
+        var aggregation = SampleAggregation(subscriptionCount: 1);
 
         var json = InsightsGetCommand.BuildPayload(aggregation, userQuery: null);
 
@@ -140,15 +117,13 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
         Assert.Equal(2, ctx.GetProperty("resourceGroupCount").GetInt32());
         var rt = ctx.GetProperty("resourceTypes").GetProperty("microsoft.storage/storageaccounts");
         Assert.Equal(3, rt.GetProperty("totalCount").GetInt32());
-        // armResourceType / filteredAutoCreatedTypes must NOT be in the LLM payload.
-        Assert.False(rt.TryGetProperty("armResourceType", out _));
         Assert.False(ctx.TryGetProperty("filteredAutoCreatedTypes", out _));
     }
 
     [Fact]
     public void BuildPayload_IncludesUserQuery_WhenProvided()
     {
-        var aggregation = SampleAggregation();
+        var aggregation = SampleAggregation(subscriptionCount: 1);
 
         var json = InsightsGetCommand.BuildPayload(aggregation, userQuery: "  finance web app  ");
 
@@ -157,7 +132,18 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
         Assert.True(doc.RootElement.TryGetProperty("resourceContext", out _));
     }
 
-    private static SubscriptionAggregation SampleAggregation()
+    [Fact]
+    public void BuildPayload_ReflectsTenantSubscriptionCount()
+    {
+        var aggregation = SampleAggregation(subscriptionCount: 7);
+
+        var json = InsightsGetCommand.BuildPayload(aggregation, userQuery: null);
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(7, doc.RootElement.GetProperty("resourceContext").GetProperty("subscriptionCount").GetInt32());
+    }
+
+    private static SubscriptionAggregation SampleAggregation(int subscriptionCount)
     {
         var props = new System.Text.Json.Nodes.JsonObject
         {
@@ -170,6 +156,10 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
                 3,
                 props),
         };
-        return new SubscriptionAggregation(resourceTypes, ResourceGroupCount: 2, FilteredAutoCreatedTypes: []);
+        return new SubscriptionAggregation(
+            resourceTypes,
+            SubscriptionCount: subscriptionCount,
+            ResourceGroupCount: 2,
+            FilteredAutoCreatedTypes: []);
     }
 }

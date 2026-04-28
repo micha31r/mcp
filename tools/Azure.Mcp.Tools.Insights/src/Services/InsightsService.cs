@@ -26,8 +26,8 @@ public sealed class InsightsService(
     private const int PageSize = 1000;
     private const int MaxPages = 100;
 
-    // Curated KQL: filter out portal/test/managed/system resource groups, project the
-    // properties we aggregate over. Matches the Python prototype.
+    // Filters out portal/test/managed/system resource groups; projects only the columns the
+    // aggregator walks.
     private const string KqlQuery = """
         Resources
         | where type !startswith "microsoft.portal/"
@@ -54,6 +54,49 @@ public sealed class InsightsService(
             ?? throw new InvalidOperationException($"Subscription '{subscription}' could not be resolved.");
         var tenantResource = await GetTenantResourceAsync(subscriptionResource.Data.TenantId, cancellationToken);
 
+        return await RunQueryAsync(
+            tenantResource,
+            new[] { subscriptionResource.Data.SubscriptionId },
+            subscriptionCount: 1,
+            scopeLabel: subscription,
+            cancellationToken);
+    }
+
+    public async Task<SubscriptionAggregation> AggregateTenantAsync(
+        string? tenant,
+        RetryPolicyOptions? retryPolicy,
+        CancellationToken cancellationToken)
+    {
+        var subscriptions = await _subscriptionService.GetSubscriptions(tenant, retryPolicy, cancellationToken);
+        if (subscriptions.Count == 0)
+        {
+            throw new InvalidOperationException("No accessible subscriptions were found in the tenant.");
+        }
+
+        var tenantId = subscriptions[0].TenantId
+            ?? throw new InvalidOperationException("Could not determine tenant ID from accessible subscriptions.");
+        var tenantResource = await GetTenantResourceAsync(tenantId, cancellationToken);
+
+        var subscriptionIds = subscriptions
+            .Select(s => s.SubscriptionId)
+            .Where(id => !string.IsNullOrEmpty(id))
+            .ToArray();
+
+        return await RunQueryAsync(
+            tenantResource,
+            subscriptionIds,
+            subscriptionCount: subscriptionIds.Length,
+            scopeLabel: $"tenant:{tenantId}",
+            cancellationToken);
+    }
+
+    private async Task<SubscriptionAggregation> RunQueryAsync(
+        TenantResource tenantResource,
+        IReadOnlyList<string> subscriptionIds,
+        int subscriptionCount,
+        string scopeLabel,
+        CancellationToken cancellationToken)
+    {
         var rows = new List<JsonElement>();
         string? skipToken = null;
         var pages = 0;
@@ -65,13 +108,16 @@ public sealed class InsightsService(
             {
                 var queryContent = new ResourceQueryContent(KqlQuery)
                 {
-                    Subscriptions = { subscriptionResource.Data.SubscriptionId },
                     Options = new ResourceQueryRequestOptions
                     {
                         Top = PageSize,
                         SkipToken = skipToken,
                     },
                 };
+                foreach (var id in subscriptionIds)
+                {
+                    queryContent.Subscriptions.Add(id);
+                }
 
                 ResourceQueryResult result = await tenantResource.GetResourcesAsync(queryContent, cancellationToken);
                 if (result is null)
@@ -100,13 +146,13 @@ public sealed class InsightsService(
                 if (pages >= MaxPages)
                 {
                     _logger.LogWarning(
-                        "Reached pagination cap of {MaxPages} pages for subscription {Subscription}; results may be truncated.",
-                        MaxPages, subscription);
+                        "Reached pagination cap of {MaxPages} pages for scope {Scope}; results may be truncated.",
+                        MaxPages, scopeLabel);
                     break;
                 }
             }
 
-            return PropertyAggregator.Aggregate(rows);
+            return PropertyAggregator.Aggregate(rows, subscriptionCount);
         }
         finally
         {

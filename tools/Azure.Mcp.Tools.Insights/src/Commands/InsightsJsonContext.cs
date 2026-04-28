@@ -4,12 +4,10 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
-using Azure.Mcp.Tools.Insights.Models;
 
 namespace Azure.Mcp.Tools.Insights.Commands;
 
 [JsonSerializable(typeof(InsightsGetCommand.InsightsGetCommandResult))]
-[JsonSerializable(typeof(InsightsResult))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(JsonObject))]
