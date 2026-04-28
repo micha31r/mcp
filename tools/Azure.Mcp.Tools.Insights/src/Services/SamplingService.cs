@@ -35,7 +35,8 @@ public sealed class SamplingService : ISamplingService
         };
 
         var response = await mcpServer.SampleAsync(request, cancellationToken);
-        if (response?.Content is not { Count: > 0 } content)
+        var content = response?.Content;
+        if (content == null || content.Count == 0)
         {
             return null;
         }

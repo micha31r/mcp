@@ -2,8 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Collections.Frozen;
-using System.Globalization;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Azure.Mcp.Tools.Insights.Services.Models;
