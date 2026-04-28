@@ -42,7 +42,7 @@ public sealed class InsightsGetCommand(
         - Each key is an ARM resource type (e.g. "microsoft.storage/storageaccounts").
         - `totalCount`: how many instances of this type exist in the tenant.
         - `propertyAggregations`: nested object where each leaf is a dict of `{value: fraction}`.
-          - `fraction` is the share of instances that have that value (0.0–1.0). The top 3 values are shown; the implied remainder is `1 - sum(fractions)`.
+          - `fraction` is the share of instances that have that value (0.0-1.0). The top 3 values are shown; the implied remainder is `1 - sum(fractions)`.
           - Example: `"location": {"eastus": 0.6, "westus2": 0.3}` means 60% of instances are in eastus, 30% in westus2, and 10% elsewhere.
 
         # Process
