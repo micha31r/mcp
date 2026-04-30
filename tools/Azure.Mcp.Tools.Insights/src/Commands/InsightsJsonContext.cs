@@ -8,6 +8,8 @@ using System.Text.Json.Serialization;
 namespace Azure.Mcp.Tools.Insights.Commands;
 
 [JsonSerializable(typeof(InsightsGetCommand.InsightsGetCommandResult))]
+[JsonSerializable(typeof(InsightsGetCommand.InsightEntry))]
+[JsonSerializable(typeof(IReadOnlyList<InsightsGetCommand.InsightEntry>))]
 [JsonSerializable(typeof(string[]))]
 [JsonSerializable(typeof(JsonElement))]
 [JsonSerializable(typeof(JsonObject))]

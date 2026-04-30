@@ -17,8 +17,8 @@ namespace Azure.Mcp.Tools.Insights.UnitTests;
 public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, IInsightsService>
 {
     public InsightsGetCommandTests()
-        : base(services => services.AddSingleton(Substitute.For<ISamplingService>()))
     {
+        Services.AddSingleton(Substitute.For<ISamplingService>());
     }
 
     [Fact]
@@ -57,31 +57,63 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
     [Fact]
     public void ParseInsights_StripsMarkdownCodeFence()
     {
-        var text = "```json\n{\"insights\": [\"a\", \"b\"]}\n```";
+        var text = "```json\n[{\"id\":\"insight-001\",\"pattern\":\"p1\",\"implication\":\"i1\"}]\n```";
 
         var result = InsightsGetCommand.ParseInsights(text);
 
-        Assert.Equal(["a", "b"], result);
+        Assert.Single(result);
+        Assert.Equal("insight-001", result[0].Id);
+        Assert.Equal("p1", result[0].Pattern);
+        Assert.Equal("i1", result[0].Implication);
     }
 
     [Fact]
-    public void ParseInsights_PlainObject_Succeeds()
+    public void ParseInsights_TopLevelArray_Succeeds()
     {
-        var text = """{"insights": ["one", "two", "three"]}""";
+        var text = """
+            [
+              {"id":"insight-001","pattern":"p1","implication":"i1"},
+              {"id":"insight-002","pattern":"p2","implication":"i2"}
+            ]
+            """;
 
         var result = InsightsGetCommand.ParseInsights(text);
 
-        Assert.Equal(["one", "two", "three"], result);
+        Assert.Equal(2, result.Count);
+        Assert.Equal("insight-002", result[1].Id);
+        Assert.Equal("p2", result[1].Pattern);
+        Assert.Equal("i2", result[1].Implication);
     }
 
     [Fact]
-    public void ParseInsights_SkipsNonStringEntries()
+    public void ParseInsights_WrappedInsightsObject_Succeeds()
     {
-        var text = """{"insights": ["a", 42, null, "b"]}""";
+        var text = """{"insights":[{"id":"insight-001","pattern":"p","implication":"i"}]}""";
 
         var result = InsightsGetCommand.ParseInsights(text);
 
-        Assert.Equal(["a", "b"], result);
+        Assert.Single(result);
+        Assert.Equal("insight-001", result[0].Id);
+    }
+
+    [Fact]
+    public void ParseInsights_SkipsEntriesMissingRequiredFields()
+    {
+        var text = """
+            [
+              {"id":"insight-001","pattern":"p","implication":"i"},
+              {"id":"insight-002","pattern":"p"},
+              {"pattern":"p","implication":"i"},
+              "string entry",
+              {"id":"insight-003","pattern":"p","implication":"i"}
+            ]
+            """;
+
+        var result = InsightsGetCommand.ParseInsights(text);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("insight-001", result[0].Id);
+        Assert.Equal("insight-003", result[1].Id);
     }
 
     [Fact]
@@ -91,7 +123,7 @@ public class InsightsGetCommandTests : CommandUnitTestsBase<InsightsGetCommand, 
     }
 
     [Fact]
-    public void ParseInsights_MissingInsightsKey_Throws()
+    public void ParseInsights_NotArrayOrInsightsWrapper_Throws()
     {
         Assert.Throws<InvalidOperationException>(
             () => InsightsGetCommand.ParseInsights("""{"other": ["a"]}"""));

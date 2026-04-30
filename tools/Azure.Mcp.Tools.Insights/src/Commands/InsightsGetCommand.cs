@@ -26,67 +26,46 @@ public sealed class InsightsGetCommand(
 
     private const string SystemPrompt = """
         # Role and Objective
-        You are an expert Azure Insight Agent. Your mission is to analyze the user's existing infrastructure data and produce insights that inform downstream infrastructure plan generation.
-
-        # Input Data Format
-
-        You will receive a JSON object with two sections:
-
-        ## userQuery
-        The user's infrastructure request. Focus your insights on patterns most relevant to this request, but draw from all tenant-wide data.
-
-        ## resourceContext
-        Per-resource-type property aggregations across the tenant.
-        - Each key is an ARM resource type (e.g. "microsoft.storage/storageaccounts").
-        - `totalCount`: how many instances of this type exist in the tenant.
-        - `propertyAggregations`: nested object where each leaf is a dict of `{value: fraction}`.
-          - `fraction` is the share of instances that have that value (0.0-1.0). The top 3 values are shown; the implied remainder is `1 - sum(fractions)`.
-          - Example: `"location": {"eastus": 0.6, "westus2": 0.3}` means 60% of instances are in eastus, 30% in westus2, and 10% elsewhere.
+        You are an expert Azure Insight Agent. Analyze the user's existing infrastructure and produce insights that inform downstream infrastructure plan generation.
 
         # Process
-        1. Analyze the property aggregations to identify architectural conventions (SKU choices, security posture, region preferences, redundancy settings).
-        2. Identify resource types that are relevant to the user's query and highlight their conventions.
-        3. Include important tenant-wide conventions even if not directly query-related.
-        4. Re-examine your insights for completeness and accuracy.
+        1. Read the property aggregations of the user's existing infrastructure from Azure Resource Graph.
+        2. Derive insights from dominant patterns in the user's existing infrastructure.
+        3. Review the insights for completeness and accuracy; improve any that fall short.
 
         # Insight Guidelines
         When selecting resource properties to base insights on:
         - Only consider properties that represent explicit user decisions affecting design.
-        - Never include properties involving runtime, versions, implementation details, app settings, default values, operational settings, or boilerplate configurations.
+        - Never include runtime, versions, implementation details, app settings, default values, operational settings, or boilerplate configurations.
         - Never include instance-specific properties of a resource.
+        - Focus on meaningful property areas like region, resource pairing, security posture, cost, naming and tagging conventions, and policies.
 
-        ### Structure of an Insight
+        Each insight is a structured object with the fields below.
 
-        Each insight must contain three parts: an observed pattern, the reasoning behind it, and a planning implication.
-        - The reasoning must be grounded in factual information from the data. Do not make assumptions.
-        - The planning implication must state concrete actions or decisions for infra planning that align with the user's requirements.
-        - The reasoning must clearly connect the observed pattern to the planning implication.
-
-        ### Filtering
-
-        Use the following areas as a guide when deciding which resource properties are meaningful:
-        - Region
-        - Resource pairing
-        - Security posture
-        - Cost
-        - Naming and tagging conventions
-        - Azure policies
+        | Field | Required | Description |
+        |---|---|---|
+        | `id` | yes | Stable identifier, format `insight-NNN` (e.g. `insight-001`). |
+        | `pattern` | yes | The factual pattern from the data, with counts or percentages. |
+        | `implication` | yes | Concrete planning action that reflects the user's existing convention. |
 
         # Output
 
-        Return a JSON object with an "insights" key containing an array of insight strings.
+        Return the final insights using the schema below.
 
         ```json
-        {
-          "insights": [
-            "Insight 1",
-            "Insight 2",
-            "Insight 3"
-          ]
-        }
+        [
+          {
+            "id": "insight-001",
+            "pattern": "96.1% (558 of 580) of resources reporting properties.minimumTlsVersion are pinned to TLS1_2",
+            "implication": "New TLS-capable resources in the plan should set minimumTlsVersion to TLS1_2 to match the tenant convention."
+          },
+          {
+            "id": "insight-002",
+            "pattern": "89.5% (1,154 of 1,289) of resources reporting properties.publicNetworkAccess have it Enabled",
+            "implication": "The tenant default for publicNetworkAccess is Enabled."
+          }
+        ]
         ```
-
-        Each insight must be a single sentence with this structure: "[observed pattern]: [reasoning] [planning implication]".
         """;
 
     private readonly ILogger<InsightsGetCommand> _logger = logger;
@@ -112,7 +91,7 @@ public sealed class InsightsGetCommand(
         - query: Free-form description of the user's infrastructure intent. When provided,
           insights are tailored to this scenario; when omitted, generic patterns are returned.
 
-        Returns an array of insight strings.
+        Returns an array of structured insight objects, each with `id`, `pattern`, and `implication` fields.
 
         Note: This command relies on the MCP sampling capability and is only available when
         the server is invoked over a transport whose client supports sampling.
@@ -247,11 +226,14 @@ public sealed class InsightsGetCommand(
     }
 
     /// <summary>
-    /// Parses the LLM response as <c>{ "insights": [...] }</c>, stripping a surrounding markdown
-    /// code fence if present. Throws on malformed input so that the caller's <c>HandleException</c>
-    /// returns a 500 with the underlying parse error.
+    /// Parses the LLM response as a JSON array of insight objects (per the documented prompt
+    /// schema), tolerating an optional <c>{ "insights": [...] }</c> wrapper and stripping a
+    /// surrounding markdown code fence if present. Each entry must be an object with non-empty
+    /// <c>id</c>, <c>pattern</c>, and <c>implication</c> string fields; entries missing any
+    /// required field are skipped. Throws on malformed input so that the caller's
+    /// <c>HandleException</c> returns a 500 with the underlying parse error.
     /// </summary>
-    internal static IReadOnlyList<string> ParseInsights(string? text)
+    internal static IReadOnlyList<InsightEntry> ParseInsights(string? text)
     {
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -261,26 +243,55 @@ public sealed class InsightsGetCommand(
         var json = StripCodeFence(text.Trim());
 
         using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.ValueKind != JsonValueKind.Object
-            || !doc.RootElement.TryGetProperty("insights", out var arr)
-            || arr.ValueKind != JsonValueKind.Array)
+        var root = doc.RootElement;
+
+        JsonElement arr;
+        if (root.ValueKind == JsonValueKind.Array)
         {
-            throw new InvalidOperationException("Sampling response did not contain an 'insights' array.");
+            arr = root;
+        }
+        else if (root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("insights", out var wrapped)
+            && wrapped.ValueKind == JsonValueKind.Array)
+        {
+            arr = wrapped;
+        }
+        else
+        {
+            throw new InvalidOperationException("Sampling response was not a JSON array of insights.");
         }
 
-        var list = new List<string>(arr.GetArrayLength());
+        var list = new List<InsightEntry>(arr.GetArrayLength());
         foreach (var item in arr.EnumerateArray())
         {
-            if (item.ValueKind == JsonValueKind.String)
+            if (item.ValueKind != JsonValueKind.Object)
             {
-                var s = item.GetString();
-                if (!string.IsNullOrWhiteSpace(s))
-                {
-                    list.Add(s);
-                }
+                continue;
             }
+
+            var id = GetStringProperty(item, "id");
+            var pattern = GetStringProperty(item, "pattern");
+            var implication = GetStringProperty(item, "implication");
+
+            if (string.IsNullOrWhiteSpace(id)
+                || string.IsNullOrWhiteSpace(pattern)
+                || string.IsNullOrWhiteSpace(implication))
+            {
+                continue;
+            }
+
+            list.Add(new InsightEntry(id, pattern, implication));
         }
         return list;
+    }
+
+    private static string? GetStringProperty(JsonElement element, string name)
+    {
+        if (element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String)
+        {
+            return value.GetString();
+        }
+        return null;
     }
 
     private static string StripCodeFence(string text)
@@ -304,5 +315,7 @@ public sealed class InsightsGetCommand(
         return inner.Trim();
     }
 
-    internal record InsightsGetCommandResult(IReadOnlyList<string> Insights);
+    internal record InsightsGetCommandResult(IReadOnlyList<InsightEntry> Insights);
+
+    internal record InsightEntry(string Id, string Pattern, string Implication);
 }
