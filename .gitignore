@@ -24,7 +24,6 @@ node_modules/
 generated/
 /docs/commandline
 .DS_Store
-.vscode/mcp.json
 .vscode/settings.json
 
 eng/tools/ToolDescriptionEvaluator/prompts.json

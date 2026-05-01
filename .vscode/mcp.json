@@ -1,0 +1,19 @@
+{
+  "servers": {
+    "azure-mcp-dev": {
+      "type": "stdio",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/servers/Azure.Mcp.Server/src/Azure.Mcp.Server.csproj",
+        "--",
+        "server",
+        "start",
+        "--namespace",
+        "insights",
+        "--debug"
+      ]
+    }
+  }
+}
