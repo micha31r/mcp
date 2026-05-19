@@ -366,7 +366,8 @@ azmcp search knowledge source get --service <service>
 
 # List AI Search accounts in a subscription
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp search service list --subscription <subscription>
+azmcp search service list --subscription <subscription> \
+                         [--resource-group <resource-group>]
 ```
 
 ### Azure AI Services Speech Operations
@@ -479,7 +480,8 @@ azmcp speech tts synthesize --endpoint https://myservice.cognitiveservices.azure
 ```bash
 # List App Configuration stores in a subscription
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp appconfig account list --subscription <subscription>
+azmcp appconfig account list --subscription <subscription> \
+                            [--resource-group <resource-group>]
 
 # Delete a key-value setting
 # ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
@@ -640,6 +642,48 @@ azmcp appservice webapp get --subscription "my-subscription" \
 azmcp appservice webapp get --subscription "my-subscription" \
                             --resource-group "my-resource-group" \
                             --app "my-app"
+```
+
+```bash
+# Change the running state of an App Service Web App
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp appservice webapp change-state --subscription <subscription> \
+                                     --resource-group <resource-group> \
+                                     --app <app> \
+                                     --state-change <state-change> \
+                                     [--soft-restart] \
+                                     [--wait-for-completion]
+
+# Examples:
+# Start the App Service Web App
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp appservice webapp change-state --subscription "my-subscription" \
+                                     --resource-group "my-resource-group" \
+                                     --app "my-app" \
+                                     --state-change "start"
+
+# Stop the App Service Web App
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp appservice webapp change-state --subscription "my-subscription" \
+                                     --resource-group "my-resource-group" \
+                                     --app "my-app" \
+                                     --state-change "stop"
+
+# Restart the App Service Web App
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp appservice webapp change-state --subscription "my-subscription" \
+                                     --resource-group "my-resource-group" \
+                                     --app "my-app" \
+                                     --state-change "restart"
+
+# Soft restart the App Service Web App waiting for restart to complete
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp appservice webapp change-state --subscription "my-subscription" \
+                                     --resource-group "my-resource-group" \
+                                     --app "my-app" \
+                                     --state-change "restart" \
+                                     --soft-restart \
+                                     --wait-for-completion
 ```
 
 #### Web App Application Settings
@@ -809,12 +853,76 @@ azmcp azurebackup vault update --subscription <subscription> \
 
 ```bash
 # Creates a backup policy for a specified workload type with schedule and retention rules.
+# Supports daily/weekly/hourly schedules, multi-tier retention (daily/weekly/monthly/yearly), and archive
+# tiering for Recovery Services vaults (RSV). Backup vaults (DPP) do not currently support archive tiering.
 # ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
 azmcp azurebackup policy create --subscription <subscription> \
                                 --resource-group <resource-group> \
                                 --vault <vault> \
                                 --policy <policy> \
                                 --workload-type <workload-type> \
+                                [--vault-type <vault-type>] \
+                                # --- Common schedule (RSV + DPP) ---
+                                [--time-zone <time-zone>] \
+                                [--schedule-frequency <Daily|Weekly|Hourly>] \
+                                [--schedule-times <HH:mm[,HH:mm...]>] \
+                                [--schedule-days-of-week <day[,day...]>] \
+                                [--hourly-interval-hours <4|6|8|12|24>] \
+                                [--hourly-window-start-time <HH:mm>] \
+                                [--hourly-window-duration-hours <4-24>] \
+                                # --- Retention (RSV + DPP) ---
+                                [--daily-retention-days <int>] \
+                                [--weekly-retention-weeks <int>] \
+                                [--weekly-retention-days-of-week <day[,day...]>] \
+                                [--monthly-retention-months <int>] \
+                                [--monthly-retention-week-of-month <First|Second|Third|Fourth|Last>] \
+                                [--monthly-retention-days-of-week <day[,day...]>] \
+                                [--monthly-retention-days-of-month <int[,int...]>] \
+                                [--yearly-retention-years <int>] \
+                                [--yearly-retention-months <month[,month...]>] \
+                                [--yearly-retention-week-of-month <First|Second|Third|Fourth|Last>] \
+                                [--yearly-retention-days-of-week <day[,day...]>] \
+                                [--yearly-retention-days-of-month <int[,int...]>] \
+                                [--archive-tier-mode <CopyOnExpiry|TierAfter>] \
+                                [--archive-tier-after-days <int>] \
+                                # --- RSV-VM only ---
+                                [--policy-sub-type <Standard|Enhanced>] \
+                                [--instant-rp-retention-days <int>] \
+                                [--instant-rp-resource-group <resource-group>] \
+                                [--snapshot-consistency <ApplicationConsistent|FileSystemConsistent|Crash>] \
+                                # --- RSV VmWorkload (SQL/SAPHANA/SAPASE) ---
+                                [--full-schedule-frequency <Daily|Weekly>] \
+                                [--full-schedule-days-of-week <day[,day...]>] \
+                                [--differential-schedule-days-of-week <day[,day...]>] \
+                                [--differential-retention-days <int>] \
+                                [--incremental-schedule-days-of-week <day[,day...]>] \
+                                [--incremental-retention-days <int>] \
+                                [--log-frequency-minutes <15-240>] \
+                                [--log-retention-days <int>] \
+                                [--is-compression <true|false>] \
+                                [--is-sql-compression <true|false>] \
+                                # --- Stage 2: smart tiering / snapshot / vault-tier copy / backup mode / PITR / tags / AKS ---
+                                [--smart-tier <true|false>] \
+                                [--enable-snapshot-backup <true|false>] \
+                                [--snapshot-instant-rp-retention-days <int>] \
+                                [--snapshot-instant-rp-resource-group <resource-group>] \
+                                [--enable-vault-tier-copy <true|false>] \
+                                [--vault-tier-copy-after-days <int>] \
+                                [--backup-mode <Continuous|Vaulted>] \
+                                [--pitr-retention-days <int>] \
+                                [--policy-tags <key=value[,key=value...]>] \
+                                [--aks-snapshot-resource-group <resource-group>] \
+                                [--aks-included-namespaces <ns[,ns...]>] \
+                                [--aks-excluded-namespaces <ns[,ns...]>] \
+                                [--aks-label-selectors <selector[,selector...]>] \
+                                [--aks-include-cluster-scope-resources <true|false>]
+
+# Updates an existing RSV backup policy's schedule or retention settings. The policy must already exist in the vault.
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp azurebackup policy update --subscription <subscription> \
+                                --resource-group <resource-group> \
+                                --vault <vault> \
+                                --policy <policy> \
                                 [--vault-type <vault-type>] \
                                 [--schedule-time <schedule-time>] \
                                 [--daily-retention-days <daily-retention-days>]
@@ -947,6 +1055,34 @@ azmcp azurebackup disasterrecovery enable-crr --subscription <subscription> \
                                               --resource-group <resource-group> \
                                               --vault <vault> \
                                               [--vault-type <vault-type>]
+```
+
+#### Security
+
+```bash
+# Configures Multi-User Authorization (MUA) on a vault by linking or unlinking a Resource Guard.
+# Provide --resource-guard-id to enable MUA. Omit to disable MUA (protected operation).
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp azurebackup security configure-mua --subscription <subscription> \
+                                         --resource-group <resource-group> \
+                                         --vault <vault> \
+                                         [--vault-type <vault-type>] \
+                                         [--resource-guard-id <resource-guard-id>]
+```
+
+```bash
+# Configures Customer-Managed Key (CMK) encryption on a vault using a key from Azure Key Vault.
+# Supports both RSV and DPP vaults. Requires managed identity with Key Vault Crypto Service Encryption User role.
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp azurebackup security configure-encryption --subscription <subscription> \
+                                                --resource-group <resource-group> \
+                                                --vault <vault> \
+                                                --key-vault-uri <key-vault-uri> \
+                                                --key-name <key-name> \
+                                                --identity-type <identity-type> \
+                                                [--vault-type <vault-type>] \
+                                                [--key-version <key-version>] \
+                                                [--user-assigned-identity-id <user-assigned-identity-id>]
 ```
 
 ### Azure CLI Operations
@@ -1130,10 +1266,10 @@ azmcp compute vm create --subscription <subscription> \
                         --vm-name <vm-name> \
                         --location <location> \
                         --admin-username <admin-username> \
+                        --image <image> \
                         [--admin-password <admin-password>] \
                         [--ssh-public-key <ssh-public-key>] \
                         [--vm-size <vm-size>] \
-                        [--image <image>] \
                         [--os-type <os-type>] \
                         [--virtual-network <virtual-network>] \
                         [--subnet <subnet>] \
@@ -1145,7 +1281,7 @@ azmcp compute vm create --subscription <subscription> \
                         [--os-disk-size-gb <os-disk-size-gb>] \
                         [--os-disk-type <os-disk-type>]
 
-Defaults to Standard_D2s_v5 size and the Ubuntu2404 image when not specified. When new NSG rules are created, SSH/RDP access is allowed from any source unless `--source-address-prefix` is provided.
+Defaults to Standard_D2s_v5 size when `--vm-size` is not specified. `--image` is required and has no default; specify an alias (e.g., `Ubuntu2404`, `Win2022Datacenter`), a Marketplace URN (`publisher:offer:sku:version`), or a shared gallery image ID (starting with `/sharedGalleries/`). When new NSG rules are created, SSH/RDP access is allowed from any source unless `--source-address-prefix` is provided.
 
 # Examples:
 
@@ -1156,6 +1292,7 @@ azmcp compute vm create --subscription "my-subscription" \
                         --vm-name "my-linux-vm" \
                         --location "eastus" \
                         --admin-username "azureuser" \
+                        --image "Ubuntu2404" \
                         --ssh-public-key "ssh-ed25519 AAAAC3..."
 
 # Create Windows VM with password
@@ -1175,14 +1312,78 @@ azmcp compute vm create --subscription "my-subscription" \
                         --vm-name "my-private-vm" \
                         --location "eastus" \
                         --admin-username "azureuser" \
+                        --image "Ubuntu2404" \
                         --ssh-public-key "ssh-ed25519 AAAAC3..." \
                         --vm-size "Standard_D4s_v3" \
                         --no-public-ip
 ```
 
+**Image Formats:**
+
+The `--image` option accepts three formats:
+
+1. **Alias** — a short name that maps to a predefined Marketplace image or shared gallery image (see table below).
+2. **Marketplace URN** — `publisher:offer:sku:version` (e.g., `MicrosoftWindowsServer:WindowsServer2022:2022-datacenter-azure-edition:latest`).
+3. **Shared gallery image ID** — a path starting with `/sharedGalleries/` (e.g., `/sharedGalleries/WINDOWSSERVER.1P/images/2022-DATACENTER-AZURE-EDITION/versions/latest`).
+
+If omitted, defaults to `Ubuntu2404`.
+
 **Image Aliases:**
-- Linux: `Ubuntu2404`, `Ubuntu2204`, `Ubuntu2004`, `Debian11`, `Debian12`, `RHEL9`, `CentOS8`
-- Windows: `Win2022Datacenter`, `Win2019Datacenter`, `Win11Pro`, `Win10Pro`
+
+Marketplace aliases map to a `publisher:offer:sku:version` URN:
+
+| Alias | OS | Publisher | Offer | SKU | Version |
+|-------|------|-----------|-------|-----|---------|
+| `Ubuntu2604` | Linux | Canonical | ubuntu-26_04-lts | server | latest |
+| `Ubuntu2404` | Linux | Canonical | ubuntu-24_04-lts | server | latest |
+| `Ubuntu2204` | Linux | Canonical | 0001-com-ubuntu-server-jammy | 22_04-lts-gen2 | latest |
+| `Debian12` | Linux | Debian | debian-12 | 12-gen2 | latest |
+| `Debian11` | Linux | Debian | debian-11 | 11-gen2 | latest |
+| `RHEL9` | Linux | RedHat | RHEL | 9_0 | latest |
+| `CentOS8` | Linux | OpenLogic | CentOS | 8_5-gen2 | latest |
+| `Win2022Datacenter` | Windows | MicrosoftWindowsServer | WindowsServer2022 | 2022-datacenter-azure-edition | latest |
+| `Win11Pro` | Windows | MicrosoftWindowsDesktop | windows-11 | win11-22h2-pro | latest |
+| `Win10Pro` | Windows | MicrosoftWindowsDesktop | Windows-10 | win10-22h2-pro-g2 | latest |
+
+Shared gallery aliases map to a shared gallery image ID:
+
+| Alias | OS | Shared Gallery Image ID |
+|-------|------|-------------------------|
+| `Win2022Datacenter1P` | Windows | `/sharedGalleries/WINDOWSSERVER.1P/images/2022-DATACENTER-AZURE-EDITION/versions/latest` |
+
+**Examples using different image formats:**
+
+```bash
+# Using an alias
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ✅ Secret | ❌ LocalRequired
+azmcp compute vm create --subscription "my-sub" \
+                        --resource-group "my-rg" \
+                        --vm-name "my-vm" \
+                        --location "eastus" \
+                        --admin-username "azureuser" \
+                        --admin-password "P@ssw0rd!" \
+                        --image "Win2022Datacenter"
+
+# Using a Marketplace URN
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ✅ Secret | ❌ LocalRequired
+azmcp compute vm create --subscription "my-sub" \
+                        --resource-group "my-rg" \
+                        --vm-name "my-vm" \
+                        --location "eastus" \
+                        --admin-username "azureuser" \
+                        --admin-password "P@ssw0rd!" \
+                        --image "MicrosoftWindowsServer:WindowsServer2022:2022-datacenter-azure-edition:latest"
+
+# Using a shared gallery image ID
+# ✅ Destructive | ❌ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ✅ Secret | ❌ LocalRequired
+azmcp compute vm create --subscription "my-sub" \
+                        --resource-group "my-rg" \
+                        --vm-name "my-vm" \
+                        --location "eastus" \
+                        --admin-username "azureuser" \
+                        --admin-password "P@ssw0rd!" \
+                        --image "/sharedGalleries/WINDOWSSERVER.1P/images/2022-DATACENTER-AZURE-EDITION/versions/latest"
+```
 
 **Parameters:**
 | Parameter | Required | Description |
@@ -1192,10 +1393,10 @@ azmcp compute vm create --subscription "my-subscription" \
 | `--vm-name` | Yes | Name of the virtual machine |
 | `--location` | Yes | Azure region |
 | `--admin-username` | Yes | Admin username |
+| `--image` | Yes | Image alias (e.g., `Ubuntu2404`), Marketplace URN (`publisher:offer:sku:version`), or shared gallery image ID (`/sharedGalleries/...`). No default. |
 | `--admin-password` | Conditional | Admin password (required for Windows, optional for Linux) |
 | `--ssh-public-key` | Conditional | SSH public key (for Linux VMs) |
 | `--vm-size` | No | VM size (default: Standard_D2s_v5) |
-| `--image` | No | Image alias or URN (default: Ubuntu2404) |
 | `--os-type` | No | OS type: 'linux' or 'windows' (auto-detected from image) |
 | `--virtual-network` | No | Virtual network name |
 | `--subnet` | No | Subnet name |
@@ -1291,6 +1492,84 @@ azmcp compute vm delete --subscription "my-subscription" \
 | `--vm-name` | Yes | Name of the virtual machine to delete |
 | `--force-deletion` | No | Force delete the VM even if running or failed (Azure API forceDeletion) |
 
+```bash
+# Change Virtual Machine Power State
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp compute vm power-state --subscription <subscription> \
+                             --resource-group <resource-group> \
+                             --vm-name <vm-name> \
+                             --power-action <start|stop|deallocate|restart> \
+                             [--no-wait] \
+                             [--skip-shutdown]
+
+# Examples:
+
+# Start a VM
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp compute vm power-state --subscription "my-subscription" \
+                             --resource-group "my-rg" \
+                             --vm-name "my-vm" \
+                             --power-action start
+
+# Stop a VM (graceful shutdown)
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp compute vm power-state --subscription "my-subscription" \
+                             --resource-group "my-rg" \
+                             --vm-name "my-vm" \
+                             --power-action stop
+
+# Stop a VM immediately (skip OS shutdown)
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp compute vm power-state --subscription "my-subscription" \
+                             --resource-group "my-rg" \
+                             --vm-name "my-vm" \
+                             --power-action stop \
+                             --skip-shutdown
+
+# Deallocate a VM (release compute resources, stop billing)
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp compute vm power-state --subscription "my-subscription" \
+                             --resource-group "my-rg" \
+                             --vm-name "my-vm" \
+                             --power-action deallocate
+
+# Restart a VM
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp compute vm power-state --subscription "my-subscription" \
+                             --resource-group "my-rg" \
+                             --vm-name "my-vm" \
+                             --power-action restart
+
+# Start a VM without waiting for completion
+# ✅ Destructive | ✅ Idempotent | ❌ OpenWorld | ❌ ReadOnly | ❌ Secret | ❌ LocalRequired
+azmcp compute vm power-state --subscription "my-subscription" \
+                             --resource-group "my-rg" \
+                             --vm-name "my-vm" \
+                             --power-action start \
+                             --no-wait
+```
+
+**Command Behavior:**
+- Changes the power state of a virtual machine. Equivalent to `az vm start/stop/deallocate/restart`.
+- **start**: Powers on a stopped or deallocated VM.
+- **stop**: Shuts down the OS and powers off the VM (VM is still allocated and billing continues). Use `--skip-shutdown` to force power off without OS shutdown.
+- **deallocate**: Shuts down the OS, powers off the VM, and releases compute resources (billing stops for compute).
+- **restart**: Restarts the VM (equivalent to stop then start).
+- **With `--no-wait`**: Returns immediately after initiating the operation without waiting for completion.
+
+**Returns:**
+- VM name, ID, resource group, requested power action, completion status, and a status message.
+
+**Parameters:**
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `--subscription` | Yes | Azure subscription ID |
+| `--resource-group`, `-g` | Yes | Resource group name |
+| `--vm-name` | Yes | Name of the virtual machine |
+| `--power-action` | Yes | Power action to apply (not the current power state): `start`, `stop`, `deallocate`, or `restart` |
+| `--no-wait` | No | Return immediately without waiting for the operation to complete |
+| `--skip-shutdown` | No | Skip OS shutdown when stopping (force power off). Only valid with `--power-action stop` |
+
 #### Virtual Machine Scale Sets
 
 ```bash
@@ -1352,10 +1631,10 @@ azmcp compute vmss create --subscription <subscription> \
                           --vmss-name <vmss-name> \
                           --location <location> \
                           --admin-username <admin-username> \
+                          --image <image> \
                           [--admin-password <admin-password>] \
                           [--ssh-public-key <ssh-public-key>] \
                           [--vm-size <vm-size>] \
-                          [--image <image>] \
                           [--os-type <os-type>] \
                           [--virtual-network <virtual-network>] \
                           [--subnet <subnet>] \
@@ -1365,7 +1644,7 @@ azmcp compute vmss create --subscription <subscription> \
                           [--os-disk-size-gb <os-disk-size-gb>] \
                           [--os-disk-type <os-disk-type>]
 
-Defaults to two Standard_D2s_v5 instances running Ubuntu2404 when size or image are not provided.
+Defaults to two Standard_D2s_v5 instances when size or instance count are not provided. `--image` is required and has no default; specify an alias (e.g., `Ubuntu2404`, `Win2022Datacenter`), a Marketplace URN (`publisher:offer:sku:version`), or a shared gallery image ID (starting with `/sharedGalleries/`).
 
 # Examples:
 
@@ -1376,6 +1655,7 @@ azmcp compute vmss create --subscription "my-subscription" \
                           --vmss-name "my-vmss" \
                           --location "eastus" \
                           --admin-username "azureuser" \
+                          --image "Ubuntu2404" \
                           --ssh-public-key "ssh-ed25519 AAAAC3..." \
                           --instance-count 3
 
@@ -1399,10 +1679,10 @@ azmcp compute vmss create --subscription "my-subscription" \
 | `--vmss-name` | Yes | Name of the VMSS (max 9 chars for Windows) |
 | `--location` | Yes | Azure region |
 | `--admin-username` | Yes | Admin username |
+| `--image` | Yes | Image alias (e.g., `Ubuntu2404`), Marketplace URN (`publisher:offer:sku:version`), or shared gallery image ID (`/sharedGalleries/...`). No default. |
 | `--admin-password` | Conditional | Admin password (required for Windows) |
 | `--ssh-public-key` | Conditional | SSH public key (for Linux VMSS) |
 | `--vm-size` | No | VM size (default: Standard_D2s_v5) |
-| `--image` | No | Image alias or URN (default: Ubuntu2404) |
 | `--os-type` | No | OS type: 'linux' or 'windows' |
 | `--virtual-network` | No | Virtual network name |
 | `--subnet` | No | Subnet name |
@@ -1826,7 +2106,8 @@ azmcp kusto cluster get --subscription <subscription> \
 
 # List Azure Data Explorer clusters in a subscription
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp kusto cluster list --subscription <subscription>
+azmcp kusto cluster list --subscription <subscription> \
+                        [--resource-group <resource-group>]
 
 # List databases in a Azure Data Explorer cluster
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
@@ -2522,7 +2803,8 @@ azmcp loadtesting testrun createorupdate --subscription <subscription> \
 ```bash
 # List Azure Managed Grafana
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp grafana list --subscription <subscription>
+azmcp grafana list --subscription <subscription> \
+                  [--resource-group <resource-group>]
 ```
 
 ### Azure Marketplace Operations
@@ -2645,7 +2927,8 @@ azmcp monitor table list --subscription <subscription> \
 
 # List Log Analytics workspaces in a subscription
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
-azmcp monitor workspace list --subscription <subscription>
+azmcp monitor workspace list --subscription <subscription> \
+                            [--resource-group <resource-group>]
 
 # Query logs from Azure Monitor using KQL
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
@@ -3464,6 +3747,7 @@ azmcp storage account create --subscription <subscription> \
 # ❌ Destructive | ✅ Idempotent | ❌ OpenWorld | ✅ ReadOnly | ❌ Secret | ❌ LocalRequired
 azmcp storage account get --subscription <subscription> \
                           [--account <account>] \
+                          [--resource-group <resource-group>] \
                           [--tenant <tenant>]
 ```
 

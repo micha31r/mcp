@@ -770,7 +770,7 @@ protected override string GetErrorMessage(Exception ex) => ex switch
   {
     "AssetsRepo": "Azure/azure-sdk-assets",
     "AssetsRepoPrefixPath": "",
-    "TagPrefix": "<LiveTestCsProjFileNameWithoutExtension>", // e.g., "Azure.Mcp.Tools.KeyVault.LiveTests"
+    "TagPrefix": "<LiveTestCsProjFileNameWithoutExtension>", // e.g., "Azure.Mcp.Tools.KeyVault.Tests"
     "Tag": ""
   }
   ```

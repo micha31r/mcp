@@ -680,6 +680,7 @@
         "azurefileshare",
         "sapase",
         "sapasedatabase",
-        "sybase"
+        "sybase",
+        "pitr"
     ]
 }
