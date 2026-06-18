@@ -1,0 +1,3 @@
+changes:
+  - section: "Features Added"
+    description: "Added `Insights` toolset with `azmcp insights subscription get` (queries Azure Resource Graph, aggregates property-value frequencies per resource type, then uses MCP sampling to derive infrastructure insights) and a placeholder `azmcp insights tenant get` command. The subscription aggregation drops auto-created plumbing (ARM child resource types and a small denylist of side-effect resources) and reports the distinct resource group count alongside the per-resource-type aggregations."
